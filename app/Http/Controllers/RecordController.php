@@ -106,8 +106,8 @@ class RecordController extends Controller
                 $fileType = $request->file('file')->getMimeType();
             } catch (\Exception $e) {
                 // Fallback: store locally
-                $storedPath = $request->file('file')->store('records', 'local');
-                $filePath   = $storedPath;
+                $storedPath = $request->file('file')->store('records', 'public');
+                $filePath   = '/storage/' . $storedPath;
                 $fileType   = $request->file('file')->getMimeType();
             }
         }

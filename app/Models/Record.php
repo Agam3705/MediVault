@@ -28,6 +28,17 @@ class Record extends Model
         'deleted_at' => 'datetime',
     ];
 
+    protected function filePath(): \Illuminate\Database\Eloquent\Casts\Attribute
+    {
+        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+            get: fn (?string $value) => $value ? (
+                str_starts_with($value, 'http') || str_starts_with($value, '/storage/')
+                    ? $value
+                    : '/storage/' . $value
+            ) : null,
+        );
+    }
+
     public function patient()
     {
         return $this->belongsTo(Patient::class);
