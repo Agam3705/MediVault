@@ -2,16 +2,9 @@ services:
   # 1. Web Service (Laravel Application)
   - type: web
     name: medivault-web
-    env: php
+    env: docker
     plan: free
-    buildCommand: chmod +x build.sh && ./build.sh
-    # Leave startCommand empty to use Render's native Nginx + PHP-FPM server
-    startCommand: ""
     envVars:
-      - key: DOCUMENT_ROOT
-        value: public
-      - key: PHP_VERSION
-        value: 8.2
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
@@ -20,13 +13,10 @@ services:
   # 2. Worker Service (Laravel Queue Listener)
   - type: worker
     name: medivault-queue-worker
-    env: php
+    env: docker
     plan: free
-    buildCommand: chmod +x build.sh && ./build.sh
-    startCommand: php artisan queue:work --tries=3 --timeout=90
+    dockerCommand: php artisan queue:work --tries=3 --timeout=90
     envVars:
-      - key: PHP_VERSION
-        value: 8.2
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
