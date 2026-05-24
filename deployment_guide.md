@@ -19,7 +19,7 @@ You will need to set up the following environment variables on both your Vercel 
 | `MONGODB_URI` | Your production MongoDB Connection String (e.g., MongoDB Atlas) |
 | `DB_DATABASE` | `medivault` |
 | `QUEUE_CONNECTION` | `sync` (processes queue jobs immediately inside the request, making background workers unnecessary and free!) |
-| `SESSION_DRIVER` | `file` (or `database`) |
+| `SESSION_DRIVER` | `cookie` (Mandatory for Vercel's read-only filesystem to store session cookies in browser) |
 | `MAIL_MAILER` | `smtp` |
 | `MAIL_HOST` | `smtp.gmail.com` or `sandbox.smtp.mailtrap.io` (depending on your mail server) |
 | `MAIL_PORT` | `587` or `2525` |
@@ -27,6 +27,15 @@ You will need to set up the following environment variables on both your Vercel 
 | `MAIL_PASSWORD` | Your SMTP App Password or credential password |
 | `MAIL_FROM_ADDRESS` | `noreply@medivault.com` or your verified sender address |
 | `MAIL_FROM_NAME` | `MediVault` |
+| `LOG_CHANNEL` | `stderr` (Redirects error logs to Vercel dashboard console) |
+| `CACHE_STORE` | `array` (Uses memory-only cache since files are read-only) |
+| `VIEW_COMPILED_PATH` | `/tmp` (Redirects compiled Blade views to Vercel's writeable folder) |
+| `APP_CONFIG_CACHE` | `/tmp/config.php` (Redirects configuration cache to writeable folder) |
+| `APP_EVENTS_CACHE` | `/tmp/events.php` (Redirects event cache to writeable folder) |
+| `APP_PACKAGES_CACHE` | `/tmp/packages.php` (Redirects packages cache to writeable folder) |
+| `APP_ROUTES_CACHE` | `/tmp/routes.php` (Redirects routes cache to writeable folder) |
+| `APP_SERVICES_CACHE` | `/tmp/services.php` (Redirects services cache to writeable folder) |
+
 
 ---
 
