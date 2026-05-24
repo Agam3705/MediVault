@@ -1,0 +1,173 @@
+/* Theme utilities for MediVault */
+@layer utilities {
+  /* Glassmorphism container */
+  .glass {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  /* Custom scrollbar (already in layout, refined) */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: theme('colors.coffee.100');
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.coffee.200');
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.coffee.300');
+  }
+}
+
+/* Premium Warm Coffee & Chocolate Dark Mode Overrides */
+.dark body {
+  color: #FFF8E1 !important;
+  background-color: #2C1F1A !important;
+}
+
+.dark .min-h-screen {
+  background-image: linear-gradient(to bottom right, #2C1F1A, #1C1310, #150E0C) !important;
+}
+
+/* Nav bar overrides */
+.dark nav {
+  background-color: rgba(44, 31, 26, 0.9) !important;
+  border-color: rgba(215, 204, 200, 0.15) !important;
+}
+
+.dark nav .text-gray-800 {
+  color: #FFF8E1 !important;
+}
+
+.dark nav button, .dark nav a {
+  color: #D7CCC8 !important;
+}
+
+.dark nav button:hover, .dark nav a:hover {
+  color: #FFF8E1 !important;
+}
+
+/* Active tab button states */
+.dark button.border-\[\#5D4037\],
+.dark button.border-b-2 {
+  color: #FFF8E1 !important;
+}
+
+.dark .border-\[\#5D4037\] {
+  border-color: #FFF8E1 !important;
+}
+
+/* Card panels overrides */
+.dark .bg-white\/80, 
+.dark .bg-white\/95,
+.dark .bg-white\/70 {
+  background-color: rgba(44, 31, 26, 0.8) !important;
+  border-color: rgba(215, 204, 200, 0.15) !important;
+}
+
+.dark .bg-white {
+  background-color: #2C1F1A !important;
+  border-color: rgba(215, 204, 200, 0.15) !important;
+}
+
+.dark .text-\[\#3E2723\] {
+  color: #FFF8E1 !important;
+}
+
+.dark .text-\[\#8D6E63\] {
+  color: #BCAAA4 !important;
+}
+
+.dark .text-\[\#5D4037\] {
+  color: #D7CCC8 !important;
+}
+
+.dark .bg-\[\#FDFBF7\] {
+  background-color: #3E2723 !important;
+  border-color: rgba(215, 204, 200, 0.15) !important;
+}
+
+.dark .bg-\[\#FDFBF7\]\/70,
+.dark .bg-\[\#FDFBF7\]\/60 {
+  background-color: rgba(62, 39, 35, 0.4) !important;
+}
+
+.dark .bg-\[\#EFEBE9\]\/40 {
+  background-color: rgba(239, 235, 233, 0.1) !important;
+}
+
+.dark .bg-\[\#EFEBE9\]\/30 {
+  background-color: rgba(239, 235, 233, 0.08) !important;
+}
+
+.dark .bg-\[\#EFEBE9\] {
+  background-color: #3E2723 !important;
+  color: #FFF8E1 !important;
+  border-color: rgba(215, 204, 200, 0.15) !important;
+}
+
+.dark .border-\[\#D7CCC8\]\/60,
+.dark .border-\[\#D7CCC8\]\/50,
+.dark .border-\[\#D7CCC8\]\/45,
+.dark .border-\[\#D7CCC8\]\/40,
+.dark .border-\[\#D7CCC8\]\/30,
+.dark .border-\[\#D7CCC8\]\/10,
+.dark .border-\[\#D7CCC8\] {
+  border-color: rgba(215, 204, 200, 0.15) !important;
+}
+
+/* Input elements inside forms */
+.dark input, 
+.dark select, 
+.dark textarea {
+  background-color: #3E2723 !important;
+  color: #FFF8E1 !important;
+  border-color: rgba(215, 204, 200, 0.25) !important;
+}
+
+.dark input::placeholder, 
+.dark textarea::placeholder {
+  color: #8D6E63 !important;
+}
+
+.dark input:focus, 
+.dark select:focus, 
+.dark textarea:focus {
+  border-color: #BCAAA4 !important;
+  --tw-ring-color: #BCAAA4 !important;
+}
+
+/* Modal and Dropdown containers */
+.dark .absolute.right-0,
+.dark .absolute.mt-2 {
+  background-color: rgba(44, 31, 26, 0.95) !important;
+  border-color: rgba(215, 204, 200, 0.2) !important;
+}
+
+/* Buttons color mapping */
+.dark .bg-gradient-to-r.from-\[\#5D4037\] {
+  background-image: linear-gradient(to right, #6D4C41, #5D4037) !important;
+}
+
+.dark .bg-\[\#3E2723\] {
+  background-color: #5D4037 !important;
+}
+
+.dark .hover\:bg-\[\#5D4037\]:hover {
+  background-color: #6D4C41 !important;
+}
+
+/* Code & Command Palette tags */
+.dark kbd {
+  background-color: #3E2723 !important;
+  border-color: rgba(215, 204, 200, 0.3) !important;
+  color: #FFF8E1 !important;
+}
+

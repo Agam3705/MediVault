@@ -1,0 +1,1305 @@
+🏥
+
+MediVault
+
+Patient Medical Records System
+
+--- TABLE START ---
+Full Feature Specification & Application ArchitectureCapstone Project — Laravel MVC
+--- TABLE END ---
+
+Topic: Confidentiality of Patient Medical Records
+
+Purpose: Designing a secure system for managing and protecting patient medical records
+
+1. Project Overview
+
+MediVault is a role-based, secure web application built in Laravel that digitizes and protects patient medical records. It is designed so that real patients can own their health data, doctors can access it only with consent, and every single interaction leaves a traceable audit trail.
+
+1.1 The Problem Being Solved
+
+In the real world — especially in India — medical records are fragmented, paper-based, or siloed inside individual hospitals. When a patient visits a new doctor or has an emergency, critical history is unavailable. There is no consent mechanism, no audit trail, and no patient ownership of their own data. MediVault directly addresses all three.
+
+1.2 The Three Actors
+
+--- TABLE START ---
+Role | Who They Are | Core Responsibility
+Patient | Any registered person receiving care | Owns records, controls who can see them, can view full audit history
+Doctor | Verified medical professional | Requests access, views/adds records for their patients only
+Admin | Hospital or system administrator | Verifies doctors, manages users, views system-wide audit dashboard
+--- TABLE END ---
+
+1.3 Tech Stack
+
+--- TABLE START ---
+Layer | Technology | Free Tier / Notes
+Backend Framework | Laravel 11 (PHP) | Open source, free
+Frontend | Blade + Tailwind CSS + Alpine.js | All free, no build step with CDN
+Database | MySQL via PlanetScale or Railway | Free tier — 5 GB storage
+File Storage | Cloudinary | Free tier — 25 GB storage, 25k transformations/month
+Email | Resend or Mailtrap | Resend: 3,000 emails/month free
+Hosting | Railway or Render | Free tier with sleep after inactivity
+QR Code | simplesoftwareio/simple-qrcode | Free Laravel package
+Auth & RBAC | Laravel Breeze + Spatie Permission | Both free, open source
+Queues/Jobs | Laravel database driver | No Redis needed — runs on MySQL
+--- TABLE END ---
+
+2. Application Structure & Architecture
+
+2.1 Database Schema — All Tables
+
+Every table is described with its purpose so the relationships are clear before writing a single migration.
+
+--- TABLE START ---
+Table | Key Columns | Purpose
+users | id, name, email, password, role, is_active, last_login_at | Central identity table. Role field drives all RBAC.
+patients | id, user_id, dob, gender, blood_group, phone, emergency_contact_name, emergency_contact_phone, address | Extended patient profile linked to users.
+doctors | id, user_id, license_number, specialization, hospital, bio, verified_at, verified_by | Doctor profile. verified_at is null until Admin approves.
+records | id, patient_id, created_by, type, title, description, file_path, file_type, is_critical, deleted_at | Core medical records. Soft-deleted (never hard deleted).
+record_versions | id, record_id, changed_by, snapshot_json, change_note, created_at | Full version history snapshot on every edit.
+access_grants | id, patient_id, doctor_id, granted_at, expires_at, is_active, access_type (read/write), revoked_at, revoked_reason | Which doctors can see which patient's records, and until when.
+access_requests | id, doctor_id, patient_id, reason, status (pending/approved/denied/expired), expires_at, responded_at | Doctor requests access; patient approves/denies. Auto-expires 48 hrs.
+audit_logs | id, user_id, action, target_type, target_id, ip_address, user_agent, session_id, created_at | Immutable log of every meaningful action. Never deleted.
+notifications | id, user_id, type, title, body, read_at, action_url, created_at | In-app notifications. Also triggers email queue.
+sessions_tracker | id, user_id, session_token, ip_address, device, logged_in_at, last_active_at, is_active | Active session list. Patients can terminate sessions remotely.
+emergency_cards | id, patient_id, is_public, qr_token, blood_group, allergies, critical_conditions, medications, emergency_contact, updated_at | The public QR card data. qr_token is a unique hash.
+settings | id, key, value, description | System-wide config (e.g., access expiry default, max file size).
+--- TABLE END ---
+
+2.2 Laravel Folder Structure
+
+Below is the planned MVC structure. Organizing it this way from the start avoids refactoring later.
+
+--- TABLE START ---
+Path | What Goes Here
+app/Models/ | User, Patient, Doctor, Record, AccessGrant, AccessRequest, AuditLog, etc.
+app/Http/Controllers/ | Auth, Patient, Doctor, Admin, Record, Access, AuditLog, QRCard controllers
+app/Http/Middleware/ | RoleMiddleware, AuditLogMiddleware, SessionTimeoutMiddleware
+app/Policies/ | RecordPolicy, AccessGrantPolicy — gates for authorization
+app/Services/ | AuditLogService, NotificationService, AccessService, QRService
+app/Jobs/ | SendEmailNotificationJob, ExpireAccessRequestsJob
+app/Observers/ | RecordObserver (triggers version snapshot on update)
+resources/views/patient/ | Dashboard, records, access-grants, audit-log, emergency-card, sessions
+resources/views/doctor/ | Dashboard, patient-list, record-view, access-requests
+resources/views/admin/ | Dashboard, user-management, doctor-verify, audit-overview
+routes/web.php | All routes grouped by role middleware
+database/migrations/ | One file per table, in dependency order
+database/seeders/ | DemoSeeder for testing with realistic fake data
+--- TABLE END ---
+
+3. Ring 1 — Foundation (Non-Negotiables)
+
+These features make the application functional. Without all of Ring 1, nothing else works. Every feature below must be fully built and tested before moving to Ring 2.
+
+--- TABLE START ---
+🔴  Ring 1 — Must Ship. These are the bones of the application.
+--- TABLE END ---
+
+3.1 Authentication System
+
+Feature
+
+Full registration, login, logout, password reset, and email verification using Laravel Breeze as the scaffolding base.
+
+What it includes
+
+Registration form: name, email, password, role selection (Patient or Doctor)
+
+Login with remember-me toggle
+
+Password reset via email (queued job + Resend/Mailtrap)
+
+Email verification — user must verify before accessing any dashboard
+
+Session timeout after 30 minutes of inactivity (configurable in settings table)
+
+Last login timestamp recorded in users table on every successful login
+
+Purpose & Real-World Impact
+
+Identity is the foundation of confidentiality. If you cannot trust who is logged in, no other security measure matters. Email verification prevents fake accounts from requesting access to real patient data.
+
+3.2 Role-Based Access Control (RBAC)
+
+Feature
+
+Three roles — Patient, Doctor, Admin — each with a distinct dashboard, route group, and permission set. Implemented using Spatie Laravel Permission.
+
+What it includes
+
+Middleware groups: patient.only, doctor.only, admin.only applied to all routes
+
+Each role lands on a completely different dashboard after login
+
+Policies (RecordPolicy, AccessGrantPolicy) gate every sensitive action — not just routes
+
+Admin role is seeded in deployment; cannot be self-registered
+
+Role is stamped on every audit log entry
+
+Purpose
+
+RBAC is the technical manifestation of your project's thesis — confidentiality. A doctor cannot stumble onto a record. A patient cannot accidentally edit another patient's file. Every action is gated at the controller AND policy layer.
+
+3.3 Patient Profile & Onboarding
+
+Feature
+
+After registration and email verification, a Patient must complete their health profile before they can upload records.
+
+Fields
+
+--- TABLE START ---
+Field | Type | Why It Matters
+Date of Birth | Date | Used as a second identifier when doctors search for patients
+Gender | Select | Relevant for certain diagnoses and reports
+Blood Group | Select (A+, A-, B+, ...) | Critical for emergency card — could save a life
+Phone Number | Text + validation | For emergency contact and future OTP
+Emergency Contact Name + Phone | Text | Who to call if patient is incapacitated
+Home Address | Textarea | Location context for local health services
+Profile Photo | Image upload | Helps doctors confirm patient identity
+Profile Completeness Score | Computed % | Nudges patient to fill all fields — shown on dashboard
+--- TABLE END ---
+
+3.4 Medical Records — CRUD
+
+Feature
+
+The core product. Patients and authorized doctors can create, view, and manage structured medical records.
+
+Record Types Supported
+
+Lab Report (blood test, urine test, etc.)
+
+Prescription / Medication
+
+Diagnosis / Consultation Note
+
+Radiology (X-ray, MRI, CT scan)
+
+Vaccination Record
+
+Surgical History
+
+General Document
+
+Each Record Contains
+
+Title, Type, Description (rich text), Date of record
+
+Attached file (PDF or image — via Cloudinary)
+
+Is Critical flag — marks allergies, chronic conditions
+
+Created By (patient self-upload or doctor who added it)
+
+Soft delete — records are NEVER permanently erased, only archived
+
+File Upload Rules
+
+Accepted formats: PDF, JPG, PNG, WEBP
+
+Max size: 10 MB per file (validated server-side, shown client-side)
+
+Files stored on Cloudinary with a hashed filename — not guessable
+
+File URLs are never publicly accessible — served only through authenticated controller
+
+Purpose
+
+Soft deletion combined with version history means a patient's medical record can never be accidentally or maliciously destroyed. In a real medical system, permanent deletion of records is often illegal.
+
+3.5 Doctor Access Request & Patient Consent System
+
+Feature
+
+The most important feature. No doctor can view any patient record without an explicit, logged consent chain.
+
+The Full Flow
+
+Doctor searches for a patient by name AND one more identifier (DOB or phone)
+
+Doctor submits an access request with a reason (e.g., 'Cardiology consultation')
+
+Patient receives an in-app notification AND email — 'Dr. Sharma has requested access to your records'
+
+Patient reviews the request and clicks Approve or Deny with an optional note
+
+If approved: an access_grant row is created with a default expiry (30 days, configurable)
+
+Doctor can now view all records for that patient until expiry
+
+Patient can revoke access at any time from their Access Control panel
+
+All steps above are individually logged in audit_logs
+
+Access Request Auto-Expiry
+
+If the patient does not respond within 48 hours, the request status changes to 'expired' automatically via a scheduled Laravel job. This prevents requests from lingering indefinitely.
+
+Access Grant Expiry
+
+Access grants have an expires_at timestamp. Another scheduled job runs daily and marks expired grants inactive. Doctors receive an email 3 days before their access expires so they can request a renewal.
+
+Access Types
+
+Read-Only — doctor can view and download records but cannot add or edit
+
+Read-Write — doctor can also add consultation notes and new records for that patient
+
+Purpose
+
+This is the consent model inspired by India's Ayushman Bharat Digital Mission (ABDM). In real health systems, this kind of explicit consent trail is not optional — it is legally required. Your implementation demonstrates an understanding of real-world compliance.
+
+3.6 Audit Logging
+
+Feature
+
+Every meaningful action in the system writes an immutable row to the audit_logs table. This table is never edited or deleted.
+
+Actions That Are Logged
+
+--- TABLE START ---
+Action | Logged Fields | Visible To
+User login / logout | user_id, IP, device, timestamp | Admin, Patient (their own)
+Record created | record_id, created_by, patient_id | Admin, Patient
+Record viewed | record_id, viewer_id, access_grant_id | Admin, Patient
+Record edited | record_id, changed_by, version_id | Admin, Patient
+Record soft-deleted | record_id, deleted_by, reason | Admin
+Access requested | doctor_id, patient_id, reason | Admin, Patient
+Access approved / denied | grant_id, responded_by | Admin, Patient, Doctor
+Access revoked | grant_id, revoked_by, reason | Admin, Patient, Doctor
+Admin verified a doctor | doctor_id, admin_id | Admin
+Emergency card viewed (public) | qr_token, IP, timestamp | Admin, Patient
+Active session killed | session_id, killed_by | Admin, Patient
+Failed login attempt | email attempted, IP | Admin only
+--- TABLE END ---
+
+Patient-Visible Audit Log
+
+Patients have a dedicated page titled 'Who Has Seen My Records' — a filtered, human-readable view of their own audit log. Each entry shows: what was accessed, by whom, when, and from which IP/device. This is the transparency feature that makes the application trustworthy.
+
+4. Ring 2 
+
+Ring 2 features are fully functional additions that elevate the project from a CRUD app to something that feels like a real product. Each one demonstrates a distinct competency.
+
+--- TABLE START ---
+🟡  Ring 2 — Differentiators. These make evaluators lean forward.
+--- TABLE END ---
+
+4.1 Email Notification System
+
+Feature
+
+Every significant event in the system triggers a formatted email to the relevant user. Emails are queued (not sent inline) so the HTTP response is never delayed.
+
+Email Events
+
+--- TABLE START ---
+Trigger | Recipient | Email Content
+Doctor requests access | Patient | Doctor name, specialization, reason, Approve/Deny buttons
+Patient approves/denies access | Doctor | Decision, expiry date if approved
+Access grant expires in 3 days | Doctor | Warning with renewal request link
+Record viewed by doctor | Patient | Who viewed, which record, timestamp
+New record uploaded for patient | Patient | Record title, uploaded by
+Doctor account verified | Doctor | Welcome, account is now active
+Emergency card viewed publicly | Patient | QR was accessed, timestamp, IP
+Failed login attempt (3+ times) | Patient/Doctor | Security alert, option to lock account
+Active session killed remotely | User | Session was terminated, security note
+--- TABLE END ---
+
+Implementation Notes
+
+Uses Laravel Mailables + Queue (database driver — no Redis needed)
+
+Email templates are Blade files — styled with inline CSS for email client compatibility
+
+Notification preference toggle: patients can disable non-critical emails in settings
+
+Free tier: Resend (3,000/month) or Mailtrap for development
+
+4.2 Doctor Verification by Admin
+
+Feature
+
+Doctors cannot access any patient-related feature until an Admin has reviewed and approved their account. This prevents anyone from self-registering as a doctor and requesting access to medical records.
+
+Verification Flow
+
+Doctor registers, completes profile including Medical License Number, Specialization, Hospital Name
+
+Account is placed in 'Pending Verification' state — doctor sees a holding screen
+
+Admin dashboard shows a queue of unverified doctors with their submitted details
+
+Admin can Approve (sets verified_at timestamp) or Reject (with reason, triggers email)
+
+Approved doctor receives a welcome email and gains access to doctor features
+
+Doctor Profile Fields Collected for Verification
+
+Full legal name (must match license)
+
+Medical License / Registration Number
+
+Medical Council (e.g., MCI, State Medical Council)
+
+Specialization
+
+Current Hospital / Clinic Name
+
+Years of Experience
+
+Optional: Profile photo and brief bio for patient-facing display
+
+Purpose
+
+Doctor verification is the gatekeeping mechanism that makes the consent system meaningful. An unverified stranger should never be able to request access to sensitive patient data. This mirrors how real hospital credentialing works.
+
+4.3 QR Emergency Card
+
+Feature
+
+Every patient can generate a public QR code that, when scanned by anyone (no login required), displays only the critical health information needed in an emergency. This is the most visually impactful feature of the entire application.
+
+What the Emergency Card Shows
+
+--- TABLE START ---
+Field | Why It's On the Card
+Full Name + Photo | Identity confirmation
+Date of Birth + Age | Dosage calculations, context
+Blood Group | Transfusion compatibility — could save a life
+Known Allergies | Prevents administration of lethal medication
+Chronic Conditions | e.g., Diabetic, Epileptic — changes treatment
+Current Critical Medications | Drug interaction prevention
+Emergency Contact Name + Phone | Who to call immediately
+QR Scan Timestamp Note | Each scan is logged (patient is notified)
+--- TABLE END ---
+
+Security Design
+
+The QR URL contains a unique hashed token (not the patient's ID) — not guessable
+
+Patient can regenerate the token at any time, invalidating old QR codes
+
+Patient can toggle the card ON or OFF from their dashboard
+
+Every scan (public, no login) is logged and the patient is notified via email
+
+The card shows ONLY the fields the patient explicitly selects to include
+
+Patient Dashboard Controls
+
+Toggle emergency card on/off
+
+Select which fields to show/hide on the card
+
+View scan history: timestamp, IP, approximate location
+
+Download QR as PNG for printing on a physical wallet card
+
+Purpose
+
+This feature demonstrates that privacy and lifesaving access are not opposites — they can coexist with careful design. A patient who is unconscious and alone cannot consent to sharing their data, yet withholding blood type and allergy information could kill them. The QR card solves this.
+
+4.4 Active Session Management
+
+Feature
+
+Users can see all their currently active sessions (browser + device + IP) and remotely terminate any session they do not recognize.
+
+What It Shows
+
+Device type (Desktop / Mobile / Tablet — detected from User-Agent)
+
+Browser name and OS
+
+IP address
+
+Login time and last active time
+
+Location (city-level from IP geolocation — free API)
+
+Current badge on the active session
+
+Actions
+
+Kill a specific session — immediately invalidates that session token
+
+Kill all other sessions — logs out from every device except the current one
+
+Each kill action is logged in audit_logs and triggers an email alert
+
+Purpose
+
+This is a feature users recognize from Google and banking apps. Its presence signals that the application treats security as a first-class concern, not an afterthought. For a medical app where a leaked account exposes sensitive health data, this is not optional — it is essential.
+
+4.5 Per-Record Visibility Toggle
+
+Feature
+
+When a patient grants a doctor access, that doctor by default sees all records. But patients can hide specific records from specific doctors without revoking the entire access grant.
+
+How It Works
+
+On the Access Grants page, each grant has a 'Manage Visibility' option
+
+Patient sees a checklist of their records with toggles per doctor
+
+Hidden records are excluded from that doctor's record list silently — no error shown
+
+Admin and audit log still show all records regardless of visibility
+
+Purpose
+
+A patient may share records with a cardiologist but want to hide a psychiatric history that is irrelevant to that consultation. Per-record visibility gives patients fine-grained control — the foundation of true data ownership.
+
+4.6 Record Version History
+
+Feature
+
+Every edit to a medical record creates a snapshot of the previous version. No edit ever destroys old data.
+
+What Is Captured
+
+Full JSON snapshot of the record at the time of edit
+
+Who made the change (doctor or patient)
+
+A change note (required — doctor must explain what they changed and why)
+
+Timestamp
+
+Patient Access
+
+Patients can view the full version history of any record. They can see exactly what a doctor changed, when, and why. If a patient believes a change was inappropriate, the history provides an unalterable record for dispute resolution.
+
+Implementation
+
+A Laravel Observer on the Record model fires on the updating event, capturing the pre-update snapshot and writing it to record_versions before saving the new state.
+
+5. Ring 3
+
+These features add polish and depth. Build them only after Rings 1 and 2 are complete, tested, and deployed. Each one is independently valuable and can be added without breaking existing features.
+
+--- TABLE START ---
+🟢  Ring 3 — Polish & Depth. Bonus points, real-world readiness.
+--- TABLE END ---
+
+--- TABLE START ---
+Feature | What It Does | Why It's Valuable
+Admin Analytics Dashboard | Charts showing: total users by role, records uploaded per month, access requests approved vs denied, most active doctors. Using Chart.js via CDN. | Turns raw data into insight. Administrators can spot unusual patterns (e.g., a doctor viewing 50+ records in one day) that might indicate a security incident.
+Time-Limited Shareable Link | Patient generates a one-time, time-limited URL (expires in 24 hrs) to share a specific record with someone outside the system — e.g., a specialist with no account. | Real-world need: patients often need to share records via WhatsApp or email. A secure expiring link is far safer than sending the raw file.
+Record Completeness Score | A percentage shown on the patient dashboard based on filled profile fields, uploaded record types, and emergency card status. With specific nudges: 'Add your blood group to increase your emergency card accuracy.' | Behavioral nudge design — patients with incomplete records put themselves at risk. This feature gently pushes them toward completeness without being intrusive.
+Emergency Access Override | In a true emergency, a doctor can request an override that grants immediate read-only access for 1 hour without waiting for patient approval. Patient is notified instantly and the event is flagged red in audit logs. | Mirrors real hospital emergency protocols. The 1-hour window with mandatory notification maintains accountability while acknowledging that waiting for consent can be fatal.
+Admin Force-Revoke All Doctor Access | If a doctor's account is suspected of being compromised, an Admin can, with one click, revoke all active grants for that doctor system-wide. Triggers notifications to all affected patients. | Security incident response. In real systems, this is the equivalent of disabling a stolen access card immediately.
+In-App Notification Center | Bell icon in navbar with unread count badge. Clicking opens a drawer with all notifications, each with a direct action link (e.g., 'Review Access Request'). | Keeps users engaged with the system without requiring them to check email. Standard UX pattern from every major app.
+Doctor Search with Dual Identifier | When a doctor searches for a patient to request access, they must provide the patient's name plus at least one of: DOB, phone number, or email. Single-name search is blocked. | Prevents casual browsing. A doctor should not be able to search 'Rahul' and get a list of all Rahuls in the system. This is a real HIPAA-inspired safeguard.
+Soft Delete Recycle Bin | Patients can view their soft-deleted records in an archive section and restore them. Permanent deletion is only available after 90 days and requires entering password. | Protects against accidental deletion. The 90-day holding period + password confirmation mirrors best practices in document management systems.
+--- TABLE END ---
+
+6. Security Edge Cases
+
+These are specific attack vectors and real-world failure modes that the application must handle. Addressing them is what separates a production-grade application from a student project.
+
+6.1 Brute Force Login Protection
+
+The Risk
+
+An attacker tries thousands of password combinations against a known email address.
+
+The Mitigation
+
+Laravel's built-in throttle middleware: max 5 failed attempts in 60 seconds, then 1-minute lockout
+
+After 10 cumulative failures: account temporarily locked, security email sent to the account owner
+
+Failed login attempts are logged in audit_logs with IP address
+
+CAPTCHA option on login form (hCaptcha — free, privacy-respecting)
+
+6.2 Suspicious Session / Unusual Access Detection
+
+The Risk
+
+A legitimate user's session token is stolen (e.g., via a shared computer). The attacker now has full access without knowing the password.
+
+The Mitigation
+
+IP address is recorded at login and compared on subsequent sensitive requests
+
+If IP changes mid-session: user is shown a warning and asked to re-authenticate
+
+User-agent mismatch (browser fingerprint changes): same warning
+
+Active sessions page lets users see and kill any unrecognized session
+
+All of the above is logged in audit_logs with flag unusual_activity = true
+
+6.3 File Upload Security
+
+The Risk
+
+A malicious user uploads a PHP file disguised as a PDF, or a file containing malware, or an oversized file to exhaust storage.
+
+The Mitigation
+
+Server-side MIME type validation (not just file extension) — use PHP's finfo_file()
+
+File extension whitelist: only .pdf, .jpg, .jpeg, .png, .webp
+
+Max file size: 10 MB enforced server-side regardless of client-side validation
+
+Files are stored on Cloudinary with hashed names — never in /public folder
+
+Files served only through an authenticated controller that checks access permissions before returning the file URL
+
+File URLs from Cloudinary are signed/private — not directly accessible without the signed URL
+
+6.4 Insecure Direct Object Reference (IDOR) Prevention
+
+The Risk
+
+A logged-in doctor changes the record ID in the URL from /records/45 to /records/46 and accesses another patient's record they were never granted access to.
+
+The Mitigation
+
+All record views go through RecordPolicy which checks: does this user have an active, non-expired access_grant for the patient who owns this record?
+
+Laravel's authorize() method is called at the top of every controller action
+
+Returning a 403 (not 404) so unauthorized access is distinguishable in logs from not-found
+
+The access check is at the Policy layer — not just the route level — so it cannot be bypassed by direct controller calls
+
+6.5 Mass Assignment Protection
+
+The Risk
+
+A malicious form submission includes extra fields like role=admin or verified_at=now, which Laravel might mass-assign into the model.
+
+The Mitigation
+
+Every Model has a strict $fillable array — only explicitly listed fields can be mass assigned
+
+Sensitive fields (role, verified_at, is_active) are in $guarded and can only be set via explicit assignment
+
+Form Request classes validate and filter all incoming data before it reaches the controller
+
+6.6 SQL Injection & XSS
+
+The Mitigation
+
+Laravel's Eloquent ORM uses parameterized queries by default — SQL injection is not possible through Eloquent
+
+All output in Blade templates uses {{ }} (escaped) not {!! !!} (raw) — XSS is prevented by default
+
+Content Security Policy headers added via middleware to prevent inline script injection
+
+Any user-generated content rendered as HTML (e.g., consultation notes) is sanitized using HTMLPurifier
+
+6.7 Admin Force-Revoke (Security Incident Response)
+
+The Risk
+
+A doctor's account credentials are compromised. The attacker now has access to every patient who ever granted that doctor access.
+
+The Mitigation
+
+Admin dashboard has a 'Suspend Doctor' action — one click sets is_active = false on the user and is_active = false on all their access_grants
+
+All active sessions for that user are immediately invalidated
+
+All patients who had active grants with this doctor receive an email notification
+
+The entire action is logged with admin_id, doctor_id, and timestamp
+
+Suspended doctor is shown a locked screen on next login with a contact email for reinstatement
+
+7. UX Edge Cases
+
+UX edge cases are situations where a normal user makes a mistake or the system reaches an unexpected state. Handling them gracefully is what makes an application feel professional and trustworthy.
+
+--- TABLE START ---
+Edge Case | What Happens Without Handling | The Solution
+Patient uploads wrong file | Record has wrong attachment, no way to fix it | Allow re-upload on edit. Old file is retained in version history. New file replaces it with a change note.
+Doctor request sits unanswered | Request never expires, doctor waits indefinitely | Scheduled job auto-expires requests after 48 hours. Patient gets a reminder at 24 hours.
+Patient has no records yet | Empty page with no guidance | Empty state design: illustration + 'Upload your first record' call-to-action button with instructions.
+Doctor has no active patients | Blank dashboard, confusing | Friendly empty state: 'You have no active patients. Search for a patient and request access to get started.'
+Patient forgets they granted access | Doctor has ongoing access patient forgot about | Dashboard prominently shows 'Active Access Grants' count. Monthly email summary of who currently has access.
+File too large | Generic server error or silent failure | Client-side size check before upload with clear message: 'File exceeds 10 MB. Please compress it or upload a smaller version.'
+Access grant expires mid-session | Doctor is viewing records when grant expires — next action fails with no explanation | Middleware checks grant validity on every request. If expired mid-session, doctor is redirected to a friendly 'Your access to this patient has expired' page.
+Patient deletes record doctor is viewing | Doctor gets a 404 with no context | Soft delete: record is archived, not deleted. Doctor sees '[Record Archived by Patient]' placeholder.
+User tries to log in with unverified email | Generic 'invalid credentials' error | Specific message: 'Please verify your email address. Resend verification email?' with a clickable link.
+Doctor applies to patient already in their list | Creates duplicate request | System checks for existing pending/active request before allowing a new one. Shows: 'You already have access to this patient.'
+Two admins simultaneously verify the same doctor | Duplicate verification entries | Optimistic locking on verified_at field: second admin sees 'This account was already verified 2 seconds ago by Admin A.'
+Patient regenerates QR token | Old QR codes (on printed cards) stop working silently | Warning dialog: 'Regenerating your QR token will invalidate all existing printed QR cards. Are you sure?' Requires typing CONFIRM.
+--- TABLE END ---
+
+8. General Application Features
+
+These are the baseline features every professional web application needs, regardless of domain. They ensure the application feels complete and polished.
+
+8.1 Responsive Design
+
+Built mobile-first using Tailwind CSS
+
+All dashboards, forms, and tables are usable on mobile screens (375px+)
+
+Navigation collapses to a hamburger menu on small screens
+
+File upload area is touch-friendly
+
+8.2 Search & Filter
+
+Patient dashboard: search their own records by title, type, or date range
+
+Doctor dashboard: filter their patient list by name or last access date
+
+Admin panel: search users by name, email, or role. Filter doctors by verification status.
+
+Audit log: filter by action type, date range, user, or target record
+
+8.3 Pagination
+
+All lists (records, audit logs, patients, access requests) are paginated. Default 15 items per page, configurable. Prevents performance issues as data grows.
+
+8.4 Flash Messages & Validation Feedback
+
+All form submissions show success (green) or error (red) flash messages
+
+Inline validation errors appear below each field immediately on submit
+
+Destructive actions (delete, revoke, kill session) require a confirmation dialog
+
+8.5 404, 403, 500 Error Pages
+
+Custom 404: 'Page not found' with a link back to dashboard
+
+Custom 403: 'You do not have permission to view this' — includes who to contact
+
+Custom 500: 'Something went wrong on our end' — with error ID for support reference
+
+8.6 Account Settings
+
+Change email (requires re-verification)
+
+Change password (requires entering current password)
+
+Update profile information
+
+Notification preferences toggle (email on/off per event type)
+
+Danger zone: Deactivate account (soft, not delete)
+
+8.7 Dark / Light Mode Toggle
+
+Tailwind's dark mode class strategy with Alpine.js toggle. Preference stored in localStorage. Small feature, high visual impact — evaluators notice this immediately.
+
+8.8 Localization Readiness
+
+All user-facing strings are stored in Laravel language files (resources/lang/en/) rather than hardcoded in Blade templates. This makes adding Hindi or another language a matter of adding a translation file — not rewriting every view.
+
+9. Deployment Strategy 
+
+The goal is a real, live URL that works in a browser — not localhost. Deploying early means you always have a working version, and bugs are caught before they stack up.
+
+--- TABLE START ---
+What | Where | Setup Notes
+Laravel App | Railway.app | Connect GitHub repo. Set environment variables. Auto-deploy on git push.
+MySQL Database | Railway.app (add-on) | One-click MySQL provisioning. Connection string auto-injected.
+File Storage | Cloudinary | Create free account, add API keys to .env. Use laravel-cloudinary package.
+Email | Resend.com | Free tier: 3,000 emails/month. Set MAIL_MAILER=smtp in .env.
+Queue Worker | Railway worker process | Add a second Railway service running: php artisan queue:work
+Scheduler | Railway cron job | Add a cron service running: php artisan schedule:run every minute
+Domain | Railway subdomain (free) | yourapp.up.railway.app — usable for demo and submission
+SSL | Automatic via Railway | HTTPS enabled by default on Railway subdomains
+--- TABLE END ---
+
+Deploy on Day 2 with just the auth system working. From that point on, every feature is built on a live URL.
+
+10. Recommended Build Timeline
+
+--- TABLE START ---
+Days | Ring | Tasks
+1 | Setup | Laravel install, Tailwind + Breeze setup, Spatie RBAC, deploy empty app to Railway
+2–3 | Ring 1 | Migrations for all tables, User/Patient/Doctor models, registration + role assignment, email verification
+4 | Ring 1 | Admin verification queue, Doctor profile, Admin dashboard skeleton
+5–6 | Ring 1 | Patient profile + onboarding, Records CRUD, file upload to Cloudinary
+7 | Ring 1 | Access request / grant / revoke system, scheduled expiry jobs
+8 | Ring 1 | Audit logging middleware + AuditLogService, patient-visible audit page
+9 | Ring 2 | Email notifications (Mailables + Queue), Notification center in-app
+10 | Ring 2 | QR Emergency Card (generate, display, scan logging, toggle)
+11 | Ring 2 | Active session management, per-record visibility toggle
+12 | Ring 2 | Record version history, soft delete recycle bin
+13 | Ring 3 | Admin analytics dashboard (Chart.js), emergency access override
+14 | Ring 3 | Time-limited shareable links, record completeness score
+15–16 | Polish | Security edge cases (brute force, IDOR tests), UX edge cases handling
+17–18 | Polish | Responsive design audit, dark mode, error pages, demo seeder
+19–20 | Final | End-to-end testing, bug fixes, README, deployment verification, demo prep
+--- TABLE END ---
+
+11. Complete Feature Summary
+
+--- TABLE START ---
+# | Feature | Ring | Purpose in One Line
+1 | Authentication (register, login, logout, reset) | 1 | Establishes identity — the foundation of all security
+2 | Email verification | 1 | Prevents fake accounts from entering the system
+3 | Role-Based Access Control (Patient, Doctor, Admin) | 1 | Every action gated by role — no accidental cross-access
+4 | Patient profile & onboarding | 1 | Collects the data needed for care and emergency response
+5 | Medical records CRUD (7 types) | 1 | The core product — the records patients own
+6 | File upload with security controls | 1 | Attaches real documents; stored privately on Cloudinary
+7 | Doctor access request system | 1 | Explicit consent chain before any doctor can view records
+8 | Patient approval / denial of requests | 1 | Patient controls who sees their data
+9 | Access grant with expiry | 1 | Time-limited access — not permanent by default
+10 | Access revocation by patient | 1 | Patient can withdraw consent at any time
+11 | Immutable audit log | 1 | Every action permanently recorded — the trust backbone
+12 | Patient-visible audit log ('Who saw my records') | 1 | Transparency that makes patients trust the system
+13 | Email notification system (9 trigger events) | 2 | System feels alive; patients are always informed
+14 | Doctor verification by Admin | 2 | Only real, credentialed doctors can request access
+15 | QR Emergency Card | 2 | Critical health info available without login — saves lives
+16 | Active session management | 2 | Security self-service — users control their own logins
+17 | Per-record visibility toggle | 2 | Fine-grained data ownership beyond grant-level access
+18 | Record version history | 2 | No edit ever destroys data — full accountability trail
+19 | Admin analytics dashboard | 3 | Security monitoring + usage insights for administrators
+20 | Time-limited shareable links | 3 | Secure one-time sharing outside the system
+21 | Record completeness score | 3 | Behavioral nudge toward safer, more complete profiles
+22 | Emergency access override (1hr, flagged) | 3 | Lifesaving access with mandatory accountability
+23 | Admin force-revoke all doctor access | 3 | Incident response — compromise containment in seconds
+24 | In-app notification center | 3 | Engagement without relying solely on email
+25 | Brute force protection + account lockout | Security | Stops password-guessing attacks
+26 | Suspicious session / IP change detection | Security | Detects stolen sessions mid-use
+27 | File upload MIME + extension validation | Security | Prevents malicious file uploads
+28 | IDOR prevention via Policies | Security | URL manipulation cannot access unauthorized records
+29 | Mass assignment protection ($fillable) | Security | Form injection cannot escalate user privileges
+30 | XSS prevention + CSP headers | Security | Output escaped by default; scripts cannot be injected
+31 | Responsive design (mobile-first) | General | Usable on any device — doctors work on phones
+32 | Search & filter on all lists | General | Usable at scale — not just for demo data
+33 | Pagination | General | Performance at scale — no 500-row tables
+34 | Flash messages + inline validation | General | Users always know what happened and what went wrong
+35 | Custom error pages (404, 403, 500) | General | Professional finish — no raw Laravel error screens
+36 | Account settings (email, password, preferences) | General | Users control their own account
+37 | Dark / light mode toggle | General | High visual impact, demonstrates frontend competency
+38 | Localization readiness | General | Ready for Hindi or any language — real-world scalability
+39 | Soft delete recycle bin | UX | Accidents are recoverable — medical data safety
+40 | Demo seeder with realistic fake data | Dev | Evaluators can explore a populated app immediately
+--- TABLE END ---
+
+12. UX & Experience Enhancements
+
+These features make MediVault feel like a product people actually want to use — not just a secure system they are forced to interact with. Each one is a deliberate design and usability decision that reduces friction, builds trust, and keeps users engaged.
+
+--- TABLE START ---
+✨  Section 12 — The Experience Layer. Where the app goes from functional to delightful.
+--- TABLE END ---
+
+12.1 Social Login — Google OAuth
+
+Feature
+
+Users can register and log in using their existing Google account with a single click, eliminating the need to remember a separate password for MediVault.
+
+How It Works
+
+User clicks 'Continue with Google' on the login or register page
+
+Redirected to Google's OAuth consent screen — they approve once
+
+On return, Laravel Socialite retrieves the user's name, email, and Google avatar
+
+If email already exists in the system: linked automatically, user is logged in
+
+If new email: account is created, user is asked to select a role (Patient or Doctor) and complete their profile
+
+A social_accounts table stores the provider + provider_user_id separately so one user can have both email/password AND Google login
+
+New Table: social_accounts
+
+--- TABLE START ---
+Column | Type | Purpose
+id | bigint PK | Primary key
+user_id | FK → users | Links to the MediVault user
+provider | varchar | 'google' (extensible to GitHub, Apple, etc.)
+provider_user_id | varchar | Google's unique ID for this user
+avatar_url | varchar nullable | Google profile photo URL — used as avatar if no custom upload
+created_at | timestamp | When the link was established
+--- TABLE END ---
+
+Security Notes
+
+Email verification is considered complete for OAuth accounts — Google already verified the email
+
+If an OAuth user wants to set a password later, they can do so from Account Settings
+
+Doctors registered via Google still go through the Admin verification queue — social login does not bypass credentialing
+
+Every OAuth login is recorded in audit_logs with provider: 'google' noted
+
+Package
+
+Laravel Socialite — official first-party package, free. Google OAuth credentials from Google Cloud Console (free tier, unlimited users).
+
+12.2 Persistent User Preferences (Cookie & LocalStorage Layer)
+
+Feature
+
+The application remembers how each user prefers to use it — across sessions and devices — without requiring them to re-configure anything after every login.
+
+What Gets Persisted
+
+--- TABLE START ---
+Preference | Storage Method | Behaviour
+Dark / Light mode choice | localStorage + cookie | Applied instantly on page load before any render — no flash of wrong theme
+Records list view (grid vs list) | localStorage | Remembered per browser — patients who prefer grid always get grid
+Records sort order (newest / oldest / type) | localStorage | Last-used sort is restored on next visit
+Sidebar collapsed / expanded state | localStorage | Power users who collapse the nav stay collapsed
+Notification preferences (email on/off per type) | Database (user_settings table) | Synced across devices — changing on mobile reflects on desktop
+Records per page (15 / 30 / 50) | Cookie (30 days) | Pagination preference survives sessions
+Last visited section / tab | sessionStorage | Returning to dashboard reopens the last active tab
+Language preference (for future i18n) | Cookie + database | Set once, remembered forever
+--- TABLE END ---
+
+Cookie Consent Banner
+
+A minimal, non-intrusive banner appears on first visit — one line of text, two buttons: 'Accept' and 'Preferences'. Clicking Accept sets a cookie_consent=true cookie (1-year expiry). Only functional cookies (session, CSRF, preferences) are ever set — no tracking or analytics cookies. This is GDPR-aligned and legally clean.
+
+New Table: user_settings
+
+Stores per-user preferences that must survive across devices (cannot rely on localStorage for these):
+
+user_id, key, value, updated_at — a simple key-value store per user
+
+Examples: notif_on_record_viewed=true, notif_on_access_request=true, records_per_page=30
+
+12.3 Pinterest-Style Masonry Card Layout
+
+Feature
+
+Medical records are displayed as a responsive masonry grid of cards — not a flat table. Each card shows the record type icon, title, date, a short preview, and a colored tag for the record type. Cards are different heights based on content, creating a natural, scannable layout.
+
+Card Anatomy
+
+--- TABLE START ---
+Card Element | What It Shows | Design Detail
+Type Icon | Lab, Prescription, Radiology, etc. | Color-coded icon per type — Lab = blue, Radiology = purple, etc.
+Record Title | User-defined title | Bold, 2-line max with ellipsis overflow
+Date Badge | Date of the record (not upload date) | Pill-shaped badge, muted color
+Preview Text | First 100 characters of description | Gray, small — gives context without opening the record
+Attachment Thumbnail | If file is an image: shows a small preview. If PDF: shows a PDF icon. | Cloudinary image transformation for thumbnail sizing
+Critical Flag | Red 'Critical' badge if is_critical = true | Never hidden — always visible for allergies and chronic conditions
+Doctor Tag | If added by a doctor: shows 'Added by Dr. Name' | Subtle, builds trust in data provenance
+Action Menu | Three-dot menu: View, Edit, Share, Archive | Appears on hover (desktop) or tap (mobile)
+--- TABLE END ---
+
+Layout Behaviour
+
+Desktop (1200px+): 3-column masonry grid
+
+Tablet (768px–1199px): 2-column masonry grid
+
+Mobile (below 768px): Single-column card stack, full width
+
+Masonry layout implemented with CSS columns property — no JavaScript library needed
+
+Cards animate in on load with a subtle fade-up (CSS transition, no JS)
+
+Toggle between masonry grid and flat list view — preference saved in localStorage
+
+Record Type Color System
+
+--- TABLE START ---
+Record Type | Card Accent Color | Icon
+Lab Report | Blue (#2563EB) | 🧪
+Prescription | Green (#16A34A) | 💊
+Diagnosis / Consultation | Teal (#0D9488) | 🩺
+Radiology (X-ray, MRI) | Purple (#7C3AED) | 🔬
+Vaccination | Amber (#D97706) | 💉
+Surgical History | Red (#DC2626) | 🏥
+General Document | Gray (#6B7280) | 📄
+--- TABLE END ---
+
+12.4 Fully Responsive — Mobile, Tablet & Desktop
+
+Philosophy
+
+MediVault is designed mobile-first. In India, most people access the internet primarily on a phone. A doctor checking records between patients uses a phone. A patient uploading a lab report from home uses a phone. The desktop experience is an enhancement, not the baseline.
+
+Breakpoint Strategy
+
+--- TABLE START ---
+Breakpoint | Width Range | Layout Behaviour
+Mobile S | 320px – 374px | Full-width single column. Tap targets minimum 44px. No horizontal scroll anywhere.
+Mobile | 375px – 767px | Single column. Bottom navigation bar (thumb-friendly). Cards stack vertically.
+Tablet | 768px – 1023px | Collapsible sidebar. 2-column masonry. Tables switch to card-based list view.
+Laptop | 1024px – 1279px | Full sidebar visible. 2–3 column layouts. Full table views.
+Desktop | 1280px+ | Full layout. 3-column masonry. Spacious padding. Max-width container (1400px).
+--- TABLE END ---
+
+Mobile-Specific Design Decisions
+
+Bottom navigation bar on mobile (like an app): Home, Records, Access, Notifications, Profile
+
+Swipe-to-reveal actions on cards: swipe left reveals Archive and Share buttons
+
+File upload on mobile uses the native camera/gallery picker — patient can photograph a document directly
+
+QR code scanner link: on mobile, tapping 'Scan a QR' opens the phone camera directly
+
+All modals are full-screen drawers on mobile, not centred pop-ups
+
+Touch-optimized date pickers — no tiny desktop calendar widgets
+
+Floating Action Button (FAB) on mobile for the primary action per screen (e.g., + Upload Record)
+
+Tables on Mobile
+
+Data tables (audit logs, access requests, user lists) reformat on mobile as stacked card-style rows. Each row becomes a small card with label-value pairs. No horizontal scrolling — the most critical columns are shown; secondary data is in an expandable 'More details' toggle.
+
+Testing Targets
+
+iPhone SE (375px) — smallest common modern iPhone
+
+Samsung Galaxy S series (360px–412px)
+
+iPad (768px)
+
+Standard laptop (1366px)
+
+12.5 Smart Global Search
+
+Feature
+
+A keyboard shortcut (Ctrl+K / Cmd+K) opens a command palette — a floating search overlay that searches across records, doctors, audit events, and settings simultaneously. Results appear in real time as the user types.
+
+What It Searches
+
+Patient: their own records by title, type, description, or date
+
+Doctor: their patient list and record titles for patients they have access to
+
+Admin: users by name/email, doctors by license number, audit events by action type
+
+Search Result Categories
+
+Records — shows type icon, title, date. Click to open the record.
+
+People — (Admin only) shows user name, role, status. Click to go to their profile.
+
+Actions — e.g. typing 'upload' highlights 'Upload a New Record'. Keyboard-navigable shortcuts.
+
+Recent — last 5 items the user visited, shown when the palette opens with no query
+
+Implementation
+
+Built with Alpine.js for the overlay and keyboard interaction. Search queries hit a Laravel controller endpoint that returns grouped JSON results. Debounced at 300ms — no request fires until the user pauses typing. No external search service needed — pure Eloquent full-text search on indexed columns.
+
+12.6 First-Time User Onboarding Flow
+
+Feature
+
+New users see a guided, step-by-step onboarding sequence the first time they log in. A progress bar at the top shows how many steps remain. This replaces the jarring 'empty dashboard' experience.
+
+Patient Onboarding Steps
+
+Welcome screen — what MediVault does in 3 bullet points, 'Let's set you up' CTA
+
+Complete your profile — fill DOB, blood group, emergency contact (with progress indicator)
+
+Upload your first record — encouraged with a sample screenshot of what a completed card looks like
+
+Set up your Emergency Card — toggle on, select which fields to show, preview the QR
+
+Notification preferences — choose which events trigger emails (all on by default)
+
+Done screen — confetti animation, 'Your profile is 80% complete. Add your allergies to reach 100%.'
+
+Doctor Onboarding Steps
+
+Welcome screen — explains the verification hold and what happens next
+
+Complete professional profile — license number, specialization, hospital, bio
+
+Upload profile photo — used on patient-facing access request cards
+
+Pending verification screen — explains timeline, shows what Admin needs to verify
+
+Implementation
+
+Onboarding state tracked via a user_settings key: onboarding_completed=false. Once all steps are done it flips to true and the flow never appears again. Users can skip and return via a 'Complete Setup' banner on their dashboard.
+
+12.7 Skeleton Loaders & Progressive UI
+
+Feature
+
+While data is loading — especially on slower mobile connections — the app shows skeleton screens (animated gray placeholder shapes) instead of a blank white page or a spinning circle.
+
+Where Skeleton Loaders Appear
+
+Records masonry grid — placeholder cards in the correct grid positions
+
+Notification drawer — placeholder rows while fetching
+
+Patient profile sidebar — gray oval for photo, gray lines for name/details
+
+Audit log table — shimmer rows while the query runs
+
+Why It Matters
+
+Skeleton loaders reduce perceived load time by 20–40% in user studies. More importantly for a medical app: they prevent users from thinking the system is broken and clicking away or submitting forms twice. This is especially important on slow connections where a blank screen causes anxiety.
+
+Implementation
+
+Pure CSS with a shimmer animation (background-position keyframe). No JavaScript needed. Blade components with a loading slot: the skeleton shows until an Alpine.js x-show condition flips when the data arrives via a fetch call or Livewire update.
+
+12.8 Drag & Drop File Upload with Preview
+
+Feature
+
+The file upload area accepts drag-and-drop from the desktop. Users can drag a PDF or image directly onto the upload zone without clicking 'Browse'. A live preview appears immediately before they submit.
+
+Behaviour
+
+Dashed drop zone with icon and text: 'Drop your file here or click to browse'
+
+On hover/drag-over: border turns solid blue, background turns light blue — visual confirmation
+
+On drop: file name, size, and type appear below the zone
+
+If file is an image (JPG/PNG): a thumbnail preview renders instantly using FileReader API
+
+If file is a PDF: a PDF icon with the file name and page count (if readable)
+
+If file is too large or wrong type: a red error message appears inline, the file is rejected before upload
+
+Submit button stays disabled until a valid file is selected — prevents empty submissions
+
+Mobile Behaviour
+
+On mobile, the drag-and-drop zone renders as a large tap target that opens the native file/camera picker. The same preview logic applies after selection.
+
+12.9 Smooth Interactions — No Jarring Page Reloads
+
+Feature
+
+Key interactions update the UI immediately without a full page reload. The application feels fast and native rather than like a traditional form-submit web app.
+
+Interactions That Update Without Full Reload
+
+--- TABLE START ---
+Interaction | Technique | User Experience
+Approve / Deny access request | Alpine.js fetch + DOM update | Button changes to confirmed state immediately, no page flash
+Mark notification as read | Alpine.js fetch | Bell count decrements, notification fades — instant feedback
+Toggle record visibility for a doctor | Alpine.js toggle + fetch | Checkbox flips, confirmation toast appears in corner
+Revoke access grant | Alpine.js fetch + row removal | Row fades out of the grants list with animation
+Toggle emergency card on/off | Alpine.js + fetch | Toggle visually flips, status badge updates — no reload
+Record soft-delete (archive) | Alpine.js + card fade-out | Card fades out of masonry grid, 'Undo' toast appears for 5 seconds
+Theme toggle (dark/light) | Alpine.js + CSS class | Instant — no round-trip to server needed
+--- TABLE END ---
+
+Toast Notification System
+
+A global toast component (bottom-right corner, or bottom-center on mobile) shows non-blocking feedback messages. Types: success (green), warning (amber), error (red), info (blue). Each auto-dismisses after 4 seconds. Multiple toasts stack. An 'Undo' toast for destructive actions stays for 8 seconds.
+
+12.10 Pinned / Bookmarked Records
+
+Feature
+
+Patients and doctors can pin up to 5 records to the top of their dashboard for quick access. Pinned records appear in a dedicated 'Pinned' section above the main grid with a subtle pin icon.
+
+Use Cases
+
+Patient pins their most recent prescription so it's always one tap away
+
+Doctor pins a patient's critical allergy record as a constant reminder during consultation
+
+Patient pins their blood test results they need to share repeatedly
+
+Implementation
+
+A pinned_records pivot table: user_id, record_id, pinned_at. Max 5 enforced at the controller level with a friendly message: 'You can pin up to 5 records. Unpin one to add another.' Pins are personal — pinning a record does not affect how anyone else sees it.
+
+12.11 Accessibility (A11y) Foundations
+
+Why This Matters
+
+A medical records system serves people of all abilities, including those with visual impairments, motor limitations, or cognitive challenges. Basic accessibility is not optional in a health application.
+
+What Is Implemented
+
+All interactive elements (buttons, links, inputs) have visible focus rings — keyboard navigation works fully
+
+All images and icons have descriptive alt text or aria-label attributes
+
+Color is never the only indicator of state — critical badges also use text and icons
+
+Form error messages are linked to their fields via aria-describedby so screen readers read them
+
+Modal dialogs trap focus when open and return focus to the trigger when closed
+
+ARIA live regions on notification count and toast messages — screen readers announce updates
+
+Font sizes are rem-based — user's browser font size preference is respected
+
+Minimum contrast ratio of 4.5:1 on all text (WCAG AA compliance target)
+
+12.12 Print & Export
+
+Feature
+
+Patients and doctors can export records and reports in formats they can use outside the app.
+
+Export Options
+
+--- TABLE START ---
+Export Type | Who Can Use It | Contents
+Single record PDF | Patient, Doctor (with access) | Formatted record with patient name, date, type, description, and attached file link
+Record summary report (PDF) | Patient | All records listed with type, title, date — a medical history summary. Generated via Laravel DomPDF (free package).
+Audit log export (PDF) | Patient, Admin | Filtered audit log for a date range — useful for legal or insurance purposes
+Emergency card PDF | Patient | Print-ready version of the QR emergency card for wallet or ID holder
+Access grants export (CSV) | Patient | List of all active and past access grants — who had access and when
+--- TABLE END ---
+
+Print Stylesheet
+
+A dedicated @media print CSS stylesheet hides navigation, sidebars, and action buttons when the user prints any page. The printed output is clean and contains only the relevant content.
+
+12.13 Progressive Web App (PWA) — Basic
+
+Feature
+
+Users on mobile can add MediVault to their home screen like a native app. When opened from the home screen, it runs without the browser address bar — full-screen, app-like experience.
+
+What This Requires
+
+A web app manifest file (manifest.json): app name, icons, theme color, display: standalone
+
+A service worker for offline caching of the app shell (not medical data — that always requires a connection)
+
+HTTPS — already provided by Railway
+
+App icons at 192px and 512px (designed in Figma or Canva — free)
+
+What Works Offline
+
+The app shell (navigation, layout) loads from cache — no blank screen on slow connections
+
+Previously viewed records are not cached — medical data must always be fresh and authenticated
+
+Offline banner: 'You are offline. Connect to view your records.' — clear, not silent failure
+
+Why Include This
+
+For a medical app targeting India, where many users are on mobile and connections are intermittent, PWA support is genuinely valuable. It also demonstrates awareness of modern web standards beyond basic Laravel.
+
+12.14 Additional Thoughtful Features
+
+Breadcrumb Navigation
+
+Every page shows a breadcrumb trail (e.g., Dashboard > My Records > Blood Test Report — Mar 2025). Eliminates confusion about where the user is, especially after navigating through the audit log or version history.
+
+Contextual Help Tooltips
+
+Small '?' icons next to technical terms (e.g., 'Access Grant', 'Audit Log', 'Critical Record') open a tooltip with a one-sentence plain-language explanation. Medical records systems have unfamiliar vocabulary — tooltips reduce support burden.
+
+Confirmation Dialogs with Consequence Preview
+
+Destructive actions (revoke access, archive record, kill session) show a dialog that explains exactly what will happen: 'Revoking access will immediately prevent Dr. Sharma from viewing any of your records. They will be notified.' Users make informed decisions, not accidental ones.
+
+Time-Relative Timestamps
+
+Dates throughout the app show relative time where appropriate: '2 hours ago', 'Yesterday', '3 days ago' — with the exact date and time in a tooltip on hover. This matches how humans naturally think about recency, especially for audit log entries.
+
+Empty States with Guidance
+
+Every list in the app has a custom empty state — not a blank page. Each empty state has an illustration, a one-line explanation of why it's empty, and a direct call-to-action. For example: no access requests shows 'You have no pending access requests. Search for a patient to request access.' with a search button.
+
+Keyboard Shortcuts Reference
+
+A keyboard shortcuts panel (triggered by pressing '?' anywhere in the app) lists all available shortcuts. Power users — particularly doctors who use the system frequently — will appreciate this. Shortcuts include: Ctrl+K (search), Ctrl+N (new record), Escape (close modal), Arrow keys (navigate list).
+
+'Last Updated' Freshness Indicator
+
+Each record card shows when it was last updated and by whom. If a record has not been updated in over 1 year, a subtle amber 'May be outdated' badge appears. This nudges patients to keep their records current — a real health safety concern.
+
+Copy to Clipboard
+
+One-click copy for shareable links, QR token URLs, and patient IDs. A checkmark animation confirms the copy succeeded. Eliminates the manual select-and-copy dance that breaks on mobile.
+
+Updated Feature Summary — All 58 Features
+
+The complete feature list now includes the UX & Experience Enhancements layer. New features are highlighted in the UX/Experience category.
+
+--- TABLE START ---
+# | Feature | Category | Purpose in One Line
+1 | Authentication (register, login, logout, reset) | Ring 1 | Establishes identity — the foundation of all security
+2 | Email verification | Ring 1 | Prevents fake accounts from entering the system
+3 | Role-Based Access Control (Patient, Doctor, Admin) | Ring 1 | Every action gated by role — no accidental cross-access
+4 | Patient profile & onboarding | Ring 1 | Collects the data needed for care and emergency response
+5 | Medical records CRUD (7 types) | Ring 1 | The core product — the records patients own
+6 | File upload with security controls | Ring 1 | Attaches real documents; stored privately on Cloudinary
+7 | Doctor access request system | Ring 1 | Explicit consent chain before any doctor can view records
+8 | Patient approval / denial of requests | Ring 1 | Patient controls who sees their data
+9 | Access grant with expiry | Ring 1 | Time-limited access — not permanent by default
+10 | Access revocation by patient | Ring 1 | Patient can withdraw consent at any time
+11 | Immutable audit log | Ring 1 | Every action permanently recorded — the trust backbone
+12 | Patient-visible audit log | Ring 1 | Transparency — patients see exactly who accessed what
+13 | Email notification system (9 events) | Ring 2 | System feels alive; patients are always informed
+14 | Doctor verification by Admin | Ring 2 | Only real, credentialed doctors can request access
+15 | QR Emergency Card | Ring 2 | Critical health info available without login — saves lives
+16 | Active session management | Ring 2 | Security self-service — users control their own logins
+17 | Per-record visibility toggle | Ring 2 | Fine-grained data ownership beyond grant-level access
+18 | Record version history | Ring 2 | No edit ever destroys data — full accountability trail
+19 | Admin analytics dashboard | Ring 3 | Security monitoring + usage insights for administrators
+20 | Time-limited shareable links | Ring 3 | Secure one-time sharing outside the system
+21 | Record completeness score | Ring 3 | Behavioral nudge toward safer, more complete profiles
+22 | Emergency access override (1hr, flagged) | Ring 3 | Lifesaving access with mandatory accountability
+23 | Admin force-revoke all doctor access | Ring 3 | Incident response — compromise containment in seconds
+24 | In-app notification center | Ring 3 | Engagement without relying solely on email
+25 | Brute force protection + account lockout | Security | Stops password-guessing attacks
+26 | Suspicious session / IP change detection | Security | Detects stolen sessions mid-use
+27 | File upload MIME + extension validation | Security | Prevents malicious file uploads
+28 | IDOR prevention via Policies | Security | URL manipulation cannot access unauthorized records
+29 | Mass assignment protection | Security | Form injection cannot escalate user privileges
+30 | XSS prevention + CSP headers | Security | Output escaped by default; scripts cannot be injected
+31 | Responsive design (mobile-first) | General | Usable on any device — doctors work on phones
+32 | Search & filter on all lists | General | Usable at scale — not just for demo data
+33 | Pagination | General | Performance at scale — no 500-row tables
+34 | Flash messages + inline validation | General | Users always know what happened and what went wrong
+35 | Custom error pages (404, 403, 500) | General | Professional finish — no raw Laravel error screens
+36 | Account settings (email, password, prefs) | General | Users control their own account
+37 | Dark / light mode toggle | General | High visual impact, demonstrates frontend competency
+38 | Localization readiness | General | Ready for Hindi or any language
+39 | Soft delete recycle bin | UX | Accidents are recoverable — medical data safety
+40 | Demo seeder with realistic fake data | Dev | Evaluators can explore a populated app immediately
+41 | Google OAuth login (Laravel Socialite) | UX/Auth | One-click login — no extra password to remember
+42 | Persistent preferences (cookie + localStorage) | UX | App remembers how each user likes to use it
+43 | Cookie consent banner (GDPR-aligned) | UX/Legal | Transparent, minimal — only functional cookies set
+44 | user_settings table for cross-device preferences | UX | Notification toggles and display prefs sync across devices
+45 | Pinterest-style masonry card layout | UI | Records are scannable, visual, and type-differentiated
+46 | Record type color system + icons | UI | Instant visual recognition of record category
+47 | Grid / list view toggle (saved preference) | UI | Users choose their preferred density
+48 | Bottom navigation bar on mobile | Mobile | Thumb-friendly navigation — no stretching to top navbar
+49 | Swipe-to-reveal card actions on mobile | Mobile | Native mobile interaction pattern
+50 | Floating Action Button (FAB) on mobile | Mobile | Primary action always one tap away
+51 | Mobile-optimized tables (card stacking) | Mobile | No horizontal scrolling on data tables
+52 | Smart global search (Ctrl+K command palette) | UX | Find anything in seconds — records, people, actions
+53 | First-time onboarding flow (patient + doctor) | UX | Guided setup replaces the empty-dashboard problem
+54 | Skeleton loaders & progressive UI | UX/Perf | Perceived performance — no blank screens on slow connections
+55 | Drag & drop file upload with live preview | UX | Frictionless uploads — preview before committing
+56 | Smooth interactions (no full page reloads) | UX/Perf | App feels native — key actions update the UI instantly
+57 | Toast notification system with Undo | UX | Non-blocking feedback + safety net for destructive actions
+58 | Pinned / bookmarked records | UX | Quick access to frequently needed records
+59 | Accessibility foundations (WCAG AA target) | A11y | Usable by people with disabilities — legally and ethically right
+60 | Print & export (PDF, CSV) | Export | Records leave the system in usable, shareable formats
+61 | Progressive Web App (PWA) support | Mobile | Install on home screen — app-like experience on Android/iOS
+62 | Breadcrumb navigation | UX | Always know where you are in the app
+63 | Contextual help tooltips | UX | Plain-language explanations of medical records terminology
+64 | Confirmation dialogs with consequence preview | UX/Safety | Informed decisions — no accidental destructive actions
+65 | Time-relative timestamps with exact on hover | UX | Human-readable time — matches how people think
+66 | Keyboard shortcuts panel (?) | UX/Power | Power users can navigate without touching the mouse
+67 | 'Last Updated' freshness indicator on records | UX/Safety | Nudges patients to keep records current
+68 | Copy to clipboard (shareable links, IDs) | UX | One-tap copy — no manual select/copy on mobile
+--- TABLE END ---
+
+MediVault — Built with Laravel. Built for real people.
+
