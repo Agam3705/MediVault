@@ -9,15 +9,3 @@ services:
         value: production
       - key: APP_DEBUG
         value: false
-
-  # 2. Worker Service (Laravel Queue Listener)
-  - type: worker
-    name: medivault-queue-worker
-    env: docker
-    plan: free
-    dockerCommand: php artisan queue:work --tries=3 --timeout=90
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: APP_DEBUG
-        value: false
